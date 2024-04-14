@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 #
 # Copyright (C) 2013-15 The CyanogenMod Project
 #           (C) 2017    The LineageOS Project
@@ -46,6 +46,11 @@ except ImportError:
         urllib = imp.new_module('urllib')
         urllib.error = urllib2
         urllib.request = urllib2
+
+# cmp() is not available in Python 3, define it manually
+# See https://docs.python.org/3.0/whatsnew/3.0.html#ordering-comparisons
+def cmp(a, b):
+    return (a > b) - (a < b)
 
 
 # Verifies whether pathA is a subdirectory (or the same) as pathB
@@ -245,14 +250,15 @@ if __name__ == '__main__':
 
     for project in projects:
         name = project.get('name')
-        path = project.get('path')
-        revision = project.get('revision')
+        # when name and path are equal, "repo manifest" doesn't return a path at all, so fall back to name
+        path = project.get('path', name)
+        revision = project.get('upstream')
         if revision is None:
             for remote in remotes:
                 if remote.get('name') == project.get('remote'):
                     revision = remote.get('revision')
             if revision is None:
-                revision = default_revision
+                revision = project.get('revision', default_revision)
 
         if not name in project_name_to_data:
             project_name_to_data[name] = {}
@@ -455,12 +461,19 @@ if __name__ == '__main__':
                 cmd_out = None
             result = subprocess.call(cmd, cwd=project_path, shell=True, stdout=cmd_out, stderr=cmd_out)
             if result != 0:
-                if args.reset:
+                cmd = ['git diff-index --quiet HEAD --']
+                result = subprocess.call(cmd, cwd=project_path, shell=True, stdout=cmd_out, stderr=cmd_out)
+                if result == 0:
+                    print('WARNING: git command resulted with an empty commit, aborting cherry-pick')
+                    cmd = ['git cherry-pick --abort']
+                    subprocess.call(cmd, cwd=project_path, shell=True, stdout=cmd_out, stderr=cmd_out)
+                elif args.reset:
                     print('ERROR: git command failed, aborting cherry-pick')
                     cmd = ['git cherry-pick --abort']
                     subprocess.call(cmd, cwd=project_path, shell=True, stdout=cmd_out, stderr=cmd_out)
+                    sys.exit(result)
                 else:
                     print('ERROR: git command failed')
-                sys.exit(result)
+                    sys.exit(result)
         if not args.quiet:
             print('')
